@@ -33,6 +33,9 @@ inputs:
     description: "Whether or not to display the projects description"
     required: false
     default: "true"
+  PROJECT_PIVOT_FIELD:
+    description: "Name of a Project Next's 'Single Select' field to use for pivoting. Default: Status"
+    required: false
 runs:
   using: "docker"
   image: "Dockerfile"

@@ -92,18 +92,28 @@ def fetch_project_items_page(project_dict, cursor, page_size):
 def get_state(project_dict):
     stored = {}
 
+    if get_env_var("PROJECT_PIVOT_FIELD") is not None:
+        pivot_field_name = get_env_var("PROJECT_PIVOT_FIELD")
+    else:
+        pivot_field_name = "Status"
+
     fields = fetch_project_fields(project_dict)
     # Assume 'Status' field as pivot field.
-    # TODO: make this configurable
-    pivot_field = next((x for x in fields if x["name"] == "Status"), None)
+    pivot_field = next((x for x in fields if x["name"] == pivot_field_name), None)
     if pivot_field is None:
-        raise ValueError("No 'Status' field found")
+        raise ValueError(f"Project does not contain field: `{pivot_field_name}`. Unable to pivot.")
 
     print(f"Using pivot field '{pivot_field['name']}' with id '{pivot_field['id']}'")
     # Pivot field options are the column names for Projects Classic
     pivot_field_settings = json.loads(pivot_field["settings"])
-    print(f" field options '{list(map(lambda x: x['name'], pivot_field_settings['options']))}'")
-    for option in pivot_field_settings["options"]:
+    if pivot_field_settings is None or "options" not in pivot_field_settings:
+        raise ValueError(f"Project field `{pivot_field_name}` is not a Single Select type. Unable to pivot.")
+    pivot_field_options = pivot_field_settings['options']
+    if pivot_field_options is None:
+        raise ValueError(f"Project field `{pivot_field_name}` is not a Single Select type. Unable to pivot.")
+
+    print(f" field options '{list(map(lambda x: x['name'], pivot_field_options))}'")
+    for option in pivot_field_options:
         stored[option['id']] = {
             "id": option['id'],
             "name": option['name'],

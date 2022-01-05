@@ -260,12 +260,12 @@ def get_comments(project, last_state):
     return issue_comments
 
 
-def save_data(repo, project, state):
+def save_data(repo, project_dict, state):
     for column in state:
         for issue in state[column]["issues"]:
             state[column]["issues"][issue]["last_read"] = get_now()
 
-    filename = ".data/%s.json" % project.id
+    filename = ".data/%s.json" % project_dict['id']
     i = 1
     while True:
         try:
@@ -480,7 +480,6 @@ def main(repo, project_dict):
     # Now do stuff.
     last_state = get_data(repo, project_dict)
     current_state = get_state(project_dict)
-    print(f"current_state: %s" % current_state)
     current_state = inherit_states(current_state, last_state)
 
     if get_env_var("TRACK_ISSUES").lower() == 'true':
@@ -510,9 +509,7 @@ def main(repo, project_dict):
                                 )
                                 update_comment(k["comments"][id], update.body, context)
 
-    # TODO: remove
-    print("Skipping save.")
-    # save_data(repo, project, current_state)
+    save_data(repo, project_dict, current_state)
 
     if not last_state:
         print("No last state found, exiting.")

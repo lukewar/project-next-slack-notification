@@ -28,16 +28,12 @@ def get_now():
     current_time = now.strftime(datetime_format)
     return current_time
 
-
-def get_state(project_dict):
-    stored = {}
-
+def fetch_project_fields(project_dict):
     query = gql(
         f"""
         query {{
             organization(login: "{project_dict['owner']['name']}") {{
                 projectNext(number: {project_dict['number']}) {{
-
                     fields(first: 25) {{
                         nodes {{
                             name
@@ -45,8 +41,22 @@ def get_state(project_dict):
                             id
                         }}
                     }}
+                }}
+            }}
+        }}
+    """
+    )
+    result = gql_client.execute(query)
+    return result["organization"]["projectNext"]["fields"]["nodes"]
 
-                    items(first: 100) {{
+def fetch_project_items_page(project_dict, cursor, page_size):
+    after = f"after: \"{cursor}\", " if isinstance(cursor, str) else ""
+    query = gql(
+        f"""
+        query {{
+            organization(login: "{project_dict['owner']['name']}") {{
+                projectNext(number: {project_dict['number']}) {{
+                    items({after}first: {page_size}) {{
                         edges {{
                             cursor
                             node {{
@@ -81,43 +91,69 @@ def get_state(project_dict):
     """
     )
     result = gql_client.execute(query)
+    return result["organization"]["projectNext"]["items"]["edges"]
 
-    fields = result["organization"]["projectNext"]["fields"]["nodes"]
-    # Assume 'Status' field as pivot field. TODO: make this configurable
-    pivot_field = next(x for x in fields if x["name"] == "Status")
+def get_state(project_dict):
+    stored = {}
+
+    fields = fetch_project_fields(project_dict)
+    # Assume 'Status' field as pivot field.
+    # TODO: make this configurable
+    pivot_field = next((x for x in fields if x["name"] == "Status"), None)
     if pivot_field is None:
         raise ValueError("No 'Status' field found")
 
+    print(f"Using pivot field '{pivot_field['name']}' with id '{pivot_field['id']}'")
     # Pivot field options are the column names for Projects Classic
     pivot_field_settings = json.loads(pivot_field["settings"])
+    print(f" field options '{list(map(lambda x: x['name'], pivot_field_settings['options']))}'")
     for option in pivot_field_settings["options"]:
         stored[option['id']] = {
             "id": option['id'],
             "name": option['name'],
             "issues": {},
         }
+    stored["no-option-placeholder"] = {
+        "id": "no-option-placeholder",
+        "name": f"No {pivot_field['name']}",
+        "issues": {},
+    }
 
-    # TODO: pagination
-    items = result["organization"]["projectNext"]["items"]["edges"]
-    for item in items:
-        content = item["node"]["content"]
-        if content is None or bool(content) is False:
-            continue
+    cursor = None
+    page_size = 100
+    while True: # fetch all pages
+        print(f"Fetching page after cursor: {cursor}")
+        items = fetch_project_items_page(project_dict, cursor, page_size)
+        for item in items:
+            content = item["node"]["content"]
+            if content is None or bool(content) is False:
+                continue
 
-        field_values = item["node"]["fieldValues"]["nodes"]
-        pivot_field_value = next(x for x in field_values if x["projectField"]["id"] == pivot_field["id"])
-        assigned_pivot_field_option = pivot_field_value["value"]
+            field_values = item["node"]["fieldValues"]["nodes"]
+            pivot_field_value = next((x for x in field_values if x["projectField"]["id"] == pivot_field["id"]), None)
+            if pivot_field_value is None:
+                assigned_pivot_field_option = "no-option-placeholder"
+            else:
+                assigned_pivot_field_option = pivot_field_value["value"]
 
-        item_record = {
-            "id": content["id"],
-            "number": content["number"],
-            "url": content["url"],
-            "html_url": content["bodyUrl"],
-            "title": content["title"],
-            "repo": content["repository"]["name"],
-            "state": content["state"],
-        }
-        stored[assigned_pivot_field_option]["issues"][content["id"]] = item_record
+            item_record = {
+                "id": content["id"],
+                "number": content["number"],
+                "url": content["url"],
+                "html_url": content["bodyUrl"],
+                "title": content["title"],
+                "repo": content["repository"]["name"],
+                "state": content["state"],
+            }
+            stored[assigned_pivot_field_option]["issues"][content["id"]] = item_record
+
+        items_count = len(items)
+        print(f" Items count: {items_count}")
+        if items_count == 0 or items_count < page_size:
+            print(" Stop: Last page fetched")
+            break
+
+        cursor = items[-1]["cursor"]
 
     return stored
 
@@ -444,6 +480,7 @@ def main(repo, project_dict):
     # Now do stuff.
     last_state = get_data(repo, project_dict)
     current_state = get_state(project_dict)
+    print(f"current_state: %s" % current_state)
     current_state = inherit_states(current_state, last_state)
 
     if get_env_var("TRACK_ISSUES").lower() == 'true':

@@ -386,10 +386,11 @@ def is_env_var_present(name):
     return get_env_var_name(name) in os.environ and get_env_var(name) != ""
 
 
-def send_slack(project, text, attachment=None, color="#D3D3D3"):  # grey-ish
+def send_slack(project_dict, text, attachment=None, color="#D3D3D3"):  # grey-ish
     if attachment is None:
         print(text)
-        footer = "Updated in project <%s|%s>" % (project.html_url, escape_slack_link(project.name))
+        footer = "Updated in project <%s|%s>" % (
+            project_dict["url"], escape_slack_link(project_dict["title"]))
         attachment = {
             "mrkdwn_in": ["text"],
             "color": color,
@@ -540,7 +541,7 @@ def main(repo, project_dict):
 
     msgs = "\n".join(msgs)
 
-    # send_slack(project, msgs, color=color)
+    send_slack(project_dict, msgs, color=color)
 
 # Get bits
 use_slack_api = is_env_var_present("SLACK_TOKEN") and is_env_var_present("CHANNEL")

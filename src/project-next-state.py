@@ -67,10 +67,6 @@ def fetch_project_items_page(project_dict, cursor, page_size):
                                         title
                                         url
                                         bodyUrl
-                                        repository {{
-                                            name
-                                            nameWithOwner
-                                        }}
                                         state
                                     }}
                                 }}
@@ -127,6 +123,7 @@ def get_state(project_dict):
         for item in items:
             content = item["node"]["content"]
             if content is None or bool(content) is False:
+                # Draft Issue or Pull Request
                 continue
 
             field_values = item["node"]["fieldValues"]["nodes"]
@@ -142,7 +139,6 @@ def get_state(project_dict):
                 "url": content["url"],
                 "html_url": content["bodyUrl"],
                 "title": content["title"],
-                "repo": content["repository"]["name"],
                 "state": content["state"],
             }
             stored[assigned_pivot_field_option]["issues"][content["id"]] = item_record
@@ -158,15 +154,14 @@ def get_state(project_dict):
     return stored
 
 
-def filter_labels(issue: Issue.Issue, labels: list):
+def filter_labels(issue_labels: list, labels: list):
     if len(labels) == 0:
         return True
     else:
-        for label in issue.labels:
-            if label.name in labels:
+        for label in issue_labels:
+            if label in labels:
                 return True
         return False
-
 
 def resolve_url(gql_client, url):
     parsed = urllib.parse.urlparse(url)
@@ -202,17 +197,56 @@ def resolve_url(gql_client, url):
         ValueError("Couldn't resolve project with URL %s" % (url))
     return result["organization"]["projectNext"]
 
-def get_threads(last_state):
-    comment_threads = {}
-    for column in last_state.values():
-        for k in column["issues"].values():
-            if "comments" in k.keys():
-                for id in k["comments"].keys():
-                    comment_threads[id] = k["comments"][id]
-    return comment_threads
+def fetch_project_items_with_comments_page(project_dict, cursor, page_size):
+    after = f"after: \"{cursor}\", " if isinstance(cursor, str) else ""
+    query = gql(
+        f"""
+        query {{
+            organization(login: "{project_dict['owner']['name']}") {{
+                projectNext(number: {project_dict['number']}) {{
+                    items({after}first: {page_size}) {{
+                        edges {{
+                            cursor
+                            node {{
+                                content {{
+                                    ... on Issue {{
+                                        id
+                                        title
+                                        bodyUrl
+
+                                        labels(first: 100) {{
+                                            nodes {{
+                                                name
+                                            }}
+                                        }}
+
+                                        comments(first: 100) {{
+                                            nodes {{
+                                                id
+                                                createdAt
+                                                updatedAt
+                                                body
+                                                url
+                                                author {{
+                                                    login
+                                                }}
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    """
+    )
+    result = gql_client.execute(query)
+    return result["organization"]["projectNext"]["items"]["edges"]
 
 
-def get_comments(project, last_state):
+def get_comments(project_dict, last_state):
     if last_state is None:
         print("last_state is none, skipping")
         return {}
@@ -222,41 +256,64 @@ def get_comments(project, last_state):
             if "last_read" in k.keys():
                 issue_last_read[k["id"]] = k["last_read"]
 
+    print(f" Fetching comments for project items")
+    cursor = None
+    page_size = 10
     issue_comments = {}
-    for column in project.get_columns():
-        for card in column.get_cards():
-            content = card.get_content()
-            if content and isinstance(content, Issue.Issue):
-                print("issue %s found" % content.html_url)
-                if not filter_labels(content, labels):
-                    print("issue %s filtered" % content.html_url)
-                    continue
-                content_id = str(content.id)
-                comments = []
-                comments_update = []
-                if content_id in issue_last_read.keys():
-                    since = datetime.strptime(
-                        issue_last_read[content_id], datetime_format
-                    )
-                    print("looking for comments since %s" % since)
-                    for comment in content.get_comments(since):
-                        print("found comment %s at %s" % (comment.body, comment.created_at))
-                        if comment.created_at > since:
-                            comments.append(comment)
-                        else:
-                            comments_update.append(comment)
-                else:
-                    print("skipping all previous comments for %s" % content.html_url)
+    while True:  # fetch all pages
+        items = fetch_project_items_with_comments_page(project_dict, cursor, page_size)
+        for item in items:
+            content = item["node"]["content"]
+            if content is None or bool(content) is False:
+                # Draft Issue or Pull Request
+                continue
 
-                issue_comments[content_id] = {
-                    "id": content_id,
-                    "number": content.number,
-                    "html_url": content.html_url,
-                    "title": content.title,
-                    "comments": comments,
-                    "comments_update": comments_update,
-                    "issue": content,
-                }
+            print("issue %s found" % content["bodyUrl"])
+
+            content_labels = list(map(lambda x: x['name'], content["labels"]["nodes"]))
+
+            if not filter_labels(content_labels, labels):
+                print(f"skipping issue {content['bodyUrl']} (no matching label)")
+                continue
+
+            content_id = content["id"]
+            comments = []
+            comments_update = []
+            if content_id in issue_last_read.keys():
+                since = datetime.strptime(issue_last_read[content_id], datetime_format)
+                print(f"looking for comments since {since}")
+
+                for comment in content["comments"]["nodes"]:
+                    created_at = datetime.strptime(comment["createdAt"], datetime_format)
+                    if created_at > since:
+                        print(f" found new comment {comment['url']} created at: {comment['createdAt']}, updated at: {comment['updatedAt']}")
+                        comments.append(comment)
+                    else:
+                        updated_at = datetime.strptime(comment["updatedAt"], datetime_format)
+                        if updated_at > since:
+                            print(f" found updated comment {comment['url']} created at: {comment['createdAt']}, updated at: {comment['updatedAt']}")
+                            comments_update.append(comment)
+                        else:
+                            print(f" skipping old comment {comment['url']} created at: {comment['createdAt']}, updated at: {comment['updatedAt']}")
+            else:
+                print(f" skipping all previous comments for {content['bodyUrl']} (no last_read marked)")
+
+            issue_comments[content_id] = {
+                "issue_id": content_id,
+                "issue_html_url": content["bodyUrl"],
+                "issue_title": content["title"],
+                "comments": comments,
+                "comments_update": comments_update,
+            }
+
+        items_count = len(items)
+        print(f" Items count: {items_count}")
+        if items_count == 0 or items_count < page_size:
+            print(" Stop: Last page fetched")
+            break
+
+        cursor = items[-1]["cursor"]
+
     return issue_comments
 
 
@@ -441,7 +498,7 @@ def publish_comment(text, context):
         "text": slack_text,
         "footer": context,
     }
-    return send_slack(project, text, attachments)
+    return send_slack(project_dict, text, attachments)
 
 
 def update_comment(ts, text, context):
@@ -484,31 +541,31 @@ def main(repo, project_dict):
     current_state = inherit_states(current_state, last_state)
 
     if get_env_var("TRACK_ISSUES").lower() == 'true':
-        comments = get_comments(project, last_state)
-        for issue in comments.keys():
-            for comment in comments[issue]["comments"]:
+        comments_by_issue = get_comments(project_dict, last_state)
+        for issue_with_comments in comments_by_issue.values():
+            for new_comment in issue_with_comments["comments"]:
                 context = "*%s* commented on <%s|%s>" % (
-                    comment.user.login,
-                    comment.html_url,
-                    escape_slack_link(comments[issue]["title"]),
+                    new_comment["author"]["login"],
+                    new_comment["url"],
+                    escape_slack_link(issue_with_comments["issue_title"]),
                 )
-                response = publish_comment(comment.body, context)
+                response = publish_comment(new_comment["body"], context)
                 if response is not None:
                     for column in current_state.values():
-                        for k in column["issues"].values():
-                            if k["id"] == issue:
-                                k["comments"][comment.id] = response["ts"]
-            for update in comments[issue]["comments_update"]:
+                        for issue in column["issues"].values():
+                            if issue["id"] == issue_with_comments["issue_id"]:
+                                issue["comments"][new_comment["id"]] = response["ts"]
+            for updated_comment in issue_with_comments["comments_update"]:
                 for column in current_state.values():
-                    for k in column["issues"].values():
-                        for id in k["comments"].keys():
-                            if id == str(update.id):
+                    for issue in column["issues"].values():
+                        for id in issue["comments"].keys():
+                            if id == updated_comment["id"]:
                                 context = "*%s* updated comment on <%s|%s>" % (
-                                    update.user.login,
-                                    update.html_url,
-                                    escape_slack_link(comments[issue]["title"]),
+                                    updated_comment["author"]["login"],
+                                    updated_comment["url"],
+                                    escape_slack_link(issue_with_comments["issue_title"]),
                                 )
-                                update_comment(k["comments"][id], update.body, context)
+                                update_comment(issue["comments"][id], updated_comment["body"], context)
 
     save_data(repo, project_dict, current_state)
 

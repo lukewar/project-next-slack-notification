@@ -513,7 +513,7 @@ def publish_comment(text, context):
 
 def update_comment(ts, text, context):
     if not use_slack_api:
-        print >> sys.stderr, "Slack Incoming Webhooks don't allow updating messages, only posting new messages is possible. Configure Slack API (SLACK_TOKEN & CHANNEL) for messages updates."
+        print >> sys.stderr, "Slack Incoming Webhooks don't allow updating messages, only posting new messages is possible. Configure Slack API (SLACK_TOKEN & SLACK_CHANNEL) for messages updates."
         sys.exit(1)
 
     print(text)
@@ -536,7 +536,7 @@ def update_comment(ts, text, context):
         if e.response["error"] == "channel_not_found":
             slack.chat_postMessage(
                 channel=channel,
-                text=":warning: please use ID for CHANNEL (e.g. CXXXXXXXXXX) as it's required for syncing edits.",
+                text=":warning: please use ID for SLACK_CHANNEL (e.g. CXXXXXXXXXX) as it's required for syncing edits.",
             )
         else:
             raise e
@@ -610,15 +610,17 @@ def main(repo, project_dict):
 
     send_slack(project_dict, msgs, color=color)
 
+
 # Get bits
-use_slack_api = is_env_var_present("SLACK_TOKEN") and is_env_var_present("CHANNEL")
+use_slack_api = is_env_var_present(
+    "SLACK_TOKEN") and is_env_var_present("SLACK_CHANNEL")
 use_slack_webhook = is_env_var_present("SLACK_WEBHOOK")
 
 if use_slack_api == use_slack_webhook:
     if use_slack_api is True:
-        print("Both Slack API (SLACK_TOKEN & CHANNEL) and Slack Incoming Webhook (SLACK_WEBHOOK) are configured. Update configuration to use only one.")
+        print("Both Slack API (SLACK_TOKEN & SLACK_CHANNEL) and Slack Incoming Webhook (SLACK_WEBHOOK) are configured. Update configuration to use only one.")
     else:
-        print("Missing Slack configuration. Please provide SLACK_TOKEN & CHANNEL if you wish to use Slack API, or SLACK_WEBHOOK if you wish to use Slack Incoming Webhook instead.")
+        print("Missing Slack configuration. Please provide SLACK_TOKEN & SLACK_CHANNEL if you wish to use Slack API, or SLACK_WEBHOOK if you wish to use Slack Incoming Webhook instead.")
     sys.exit(1)
 
 if get_env_var_name("LABELS") in os.environ:
@@ -633,7 +635,7 @@ else:
 
 
 slack = WebClient(token=get_env_var("SLACK_TOKEN"))
-channel = get_env_var("CHANNEL")
+channel = get_env_var("SLACK_CHANNEL")
 slack_webhook = get_env_var("SLACK_WEBHOOK")
 
 try:

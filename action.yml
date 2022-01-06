@@ -7,16 +7,16 @@ inputs:
   PAT:
     description: "A personal access token for GitHub"
     required: true
+  PROJECT_URL:
+    description: "The URL for the project"
+    required: true
   SLACK_TOKEN:
     description: "A token for Slack. It is possible to use SLACK_WEBHOOK instead."
     required: false
   SLACK_WEBHOOK:
     description: "An Incoming Webhook for Slack. Does not allow updating slack messages."
     required: false
-  PROJECT_URL:
-    description: "The URL for the project"
-    required: true
-  CHANNEL:
+  SLACK_CHANNEL:
     description: "The Slack channel to post to. Required if SLACK_TOKEN was specified."
     required: false
   REPO_FOR_DATA:

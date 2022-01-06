@@ -33,7 +33,7 @@ This Action is perfect for running on demand via `workflow_dispatch` or regularl
 **Inputs:**
 * `PAT`: A GitHub personal access token with the required access.
 * `SLACK_TOKEN`: A Slack token for a Slack App. It is possible to use SLACK_WEBHOOK instead.
-* `CHANNEL`: A channel to post notifications too.
+* `SLACK_CHANNEL`: A channel to post notifications too. Preffered channel id (e.g. CXXXXXXXXXX) over channel name, so messages updates are possible.
 * `SLACK_WEBHOOK`: An Incoming Webhook for Slack. Does not allow updating slack messages.
 * `PROJECT_URL`: A URL to the project that you'd like to track.
 * `REPO_FOR_DATA`: A repository to store data to. It will be stored in a `.data` directory.
@@ -55,15 +55,10 @@ jobs:
       - uses: actions/project-slack-notification@main
         with:
           PAT: ${{ secrets.PAT }}
-          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
           PROJECT_URL: "https://github.com/orgs/your-cool-org/projects/1"
-          CHANNEL: "#your-cool-project-channel"
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: "#your-cool-project-channel"
           REPO_FOR_DATA: "andymckay/data"
-          DESCRIPTION: |
-            # Cool Project Update
-
-            Here's a cat gif
-            ![](https://media.giphy.com/media/BzyTuYCmvSORqs1ABM/giphy.gif)
 ```
 
 ```yaml

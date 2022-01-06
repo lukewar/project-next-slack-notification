@@ -92,7 +92,7 @@ def fetch_project_items_page(project_dict, cursor, page_size):
 def get_state(project_dict):
     stored = {}
 
-    if get_env_var("PROJECT_PIVOT_FIELD") is not None:
+    if is_env_var_present("PROJECT_PIVOT_FIELD"):
         pivot_field_name = get_env_var("PROJECT_PIVOT_FIELD")
     else:
         pivot_field_name = "Status"
